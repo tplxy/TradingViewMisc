@@ -1,0 +1,99 @@
+//This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=5
+//©tlxy 3 Thumbs Up Rule
+// https://www.tradingview.com/script/uQitLDpo-YTD-DD/
+// https://www.tradingview.com/script/IOVfTwNH-YTD/
+// TODO 3TUR with up/down days or days up/down since first day?
+indicator('3tup', overlay=true) // scale=scale.none, precision=0, format=format.percent, max_bars_back=100
+
+// TODO input
+max_years_back = 10
+ma_period = 200
+days_of_new_year = 5
+
+//Panel
+var string GP1 = 'Calculation'
+var string GP2 = 'Display'
+ma_type = input.string("SMA200", "MA Type", ["SMA200", "EMA200"], group=GP1)
+show_ma = input.bool(true, title='Show MA', group=GP2)
+show_daily_only = input.bool(true, title='Show only on Daily', group=GP2)
+string i_tableYpos = input.string('top', 'Panel Position', inline='0', options=['top', 'middle', 'bottom'], group=GP2)
+string i_tableXpos = input.string('right', '', inline='0', options=['left', 'center', 'right'], group=GP2)
+string textsize = input.string('normal', 'Text Size', options=['small', 'normal', 'large'], group=GP2)
+
+var closeOnLast = array.new_float()
+var barIndexLast = array.new_int()
+tabContent = array.from("YTD", ma_type, "UD", "Perf", "Ptot") // "5UD", "5RUN")
+lineColor = color.black
+labelColorNorm = color.black
+labelColorUp = color.teal
+labelColorDown = color.red
+
+ma = ma_type == "SMA200" ? ta.sma(close, ma_period) : ta.ema(close, ma_period)
+
+// get old years close and bar index
+if year(time) >= (year(timenow) - max_years_back) and year(time[1]) < year(time)
+    array.push(closeOnLast, na(close[1]) ? close[0] : close[1])
+    array.push(barIndexLast, bar_index - 1)
+
+if barstate.islast and (not show_daily_only or timeframe.isdaily)
+    int perf_result = 0
+    for [i, bIdx] in barIndexLast
+
+        // TODO check if current year already has five days completed
+        // if barstate.isconfirmed and (bar_index - array.last(barIndexLast)) >= days_of_new_year
+        x_last = bar_index - bIdx - 1
+        x_this = i + 1 < array.size(barIndexLast) ? bar_index - array.get(barIndexLast, i + 1) : 0
+        x_next = x_last + 1
+        x_5d = x_last - days_of_new_year + 1
+        y_last = array.get(closeOnLast, i)
+        y_this = close[x_this]
+        y_next = i > 0 ? array.get(closeOnLast, i - 1) : y_last
+        y_5d = close[x_5d]
+
+        // YTD and MA up
+        ytd_ud = y_5d >= y_last ? 1 : -1
+        ma_ud = y_5d >= ma[x_5d] ? 1 : -1
+
+        // TODO 3TUR with up/down days or days up/down since first day?
+        // this year up or down
+        this_ud = y_5d >= open[x_last] ? 1 : -1
+
+        // performance year
+        perf_ud = y_this >= y_last ? 1 : -1
+
+        // up/down days and runs
+        int ud = na
+        int run = na
+        for k = x_this to x_5d
+            // up or down days
+            ud += close[k] >= open[k] ? 1 : -1
+            // consecutive runs
+            if i <= days_of_new_year - 2
+                run += close[k] >= close[k + 1] ? 1 : -1
+        days_ud = math.abs(ud) == days_of_new_year ? true : false
+        days_run = math.abs(ud) == days_of_new_year - 1 ? true : false
+        
+        int score_ud = ytd_ud + ma_ud + this_ud
+        int score_perf = math.sign(perf_ud) == math.sign(score_ud) ? 1 : -1
+        string txt = na
+        color labelColor = labelColorNorm
+        labelDir = label.style_cross
+        perf_result += score_perf
+        tabColors = array.from(ytd_ud, ma_ud, this_ud, score_perf, perf_result) // days_ud, days_run)
+        for [col, ctext] in tabColors
+            txt += str.tostring(tabContent.get(col)) + ": " + str.tostring(ctext) + "\n"
+        if score_ud >= 1
+            labelColor := labelColorUp
+            labelDir := label.style_triangleup
+        else if score_ud <= -1
+            labelColor := labelColorDown
+            labelDir := label.style_triangledown
+
+        xloc = xloc.bar_time
+        line.new(time[x_last], y_last, time[x_this], y_last, xloc=xloc, color=lineColor)
+        line.new(time[x_last], y_last, time[x_next], y_next, xloc=xloc, color=lineColor)
+        label.new(time[x_last], y_last, txt, style=labelDir, color=labelColor, xloc=xloc, yloc=yloc.abovebar)
+
+plot(show_ma ? ma : na, 'MA')
+

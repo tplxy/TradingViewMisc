@@ -1,0 +1,33 @@
+//©tlxy Mid Stick Reversal SupRes
+//@version=5
+max_bars_back = 500
+indicator("Mid Stick Reversal SupRes", overlay=true, max_bars_back=max_bars_back)
+
+// shape candle to look for
+var float big_ratio_lower = float(.96)
+var float big_ratio_upper = float(8)
+var float small_ratio = float(1)/3
+var float in_ratio = float(1)/2
+
+if barstate.islast
+    var float y_in = na
+    var color colorLine = na
+    for i = 0 to max_bars_back
+        barIdx = bar_index - i
+        o = open[i]
+        c = close[i]
+        h = high[i]
+        l = low[i]
+        body = math.abs(o - c)
+        top = h - (o > c ? o : c)
+        bottom = (o < c ? o : c) - l
+        if ( top/body >= big_ratio_lower and top/body <= big_ratio_upper and bottom/body <= small_ratio )
+            y_in := h - top * in_ratio // down
+            colorLine := color.red
+        else if ( bottom/body >= big_ratio_lower and bottom/body <= big_ratio_upper and top/body <= small_ratio )
+            y_in := l + bottom * in_ratio // up
+            colorLine := color.green
+        if not na(y_in)
+            line.new(barIdx, y_in, bar_index, y_in, color=colorLine)
+            y_in := na
+

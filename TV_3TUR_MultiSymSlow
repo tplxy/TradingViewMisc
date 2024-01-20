@@ -1,0 +1,132 @@
+//This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=5
+//©tlxy 3 Thumbs Up Rule Multi Symbols Table, loadind securities continuously to avoid restriction of 40 secs
+// BETA some securities like VIX and MOVE do not load correctly
+// https://www.tradingview.com/script/uQitLDpo-YTD-DD/
+// https://www.tradingview.com/script/IOVfTwNH-YTD/
+// TODO slow option with loading all securities at current bar instead of new year only
+// TODO errors because of matrix<float> instead of 'series float'
+indicator('3 Thumbs Up Rule Multi Symbol', overlay=true) // scale=scale.none, precision=0, format=format.percent, max_bars_back=100
+
+//Panel
+var string GP1 = 'Calculation'
+// var string GP2 = 'Display'
+var string GP3 = 'Symbols'
+var ma_type = input.string("SMA", "MA Type", ["SMA", "EMA"], group=GP1)
+var ma_period = input.int(200, "MA Period", group=GP1)
+var max_years_back = input.int(15, "Max Years back", group=GP1)
+var days_of_new_year = input.int(5, "Days of new Year", group=GP1)
+
+// request.security expects immutable string simple
+var sym1 = input.string("CBOE:SPX", group=GP3)
+var sym2 = input.string("NASDAQ:NDX", group=GP3)
+var sym3 = input.string("TVC:RUT", group=GP3)
+var sym4 = input.string("CBOE:VIX", group=GP3)
+var sym5 = input.string("TVC:MOVE", group=GP3)
+var sym6 = input.string("CBOE:SKEW", group=GP3)
+var sym7 = input.string("CBOE:BXD", group=GP3)
+var sym8 = input.string("BTCUSD", group=GP3)
+var sym9 = input.string("XETR:DAX", group=GP3)
+var sym10 = input.string("XETR:DAXK", group=GP3)
+var sym11 = input.string("DV1X", group=GP3)
+var sym12 = input.string("INDEX:SX5E", group=GP3)
+var sym13 = input.string("TVC:SXXP", group=GP3)
+var symbols = array.from(sym1, sym2, sym3, sym4, sym5, sym6, sym7, sym8, sym9, sym10, sym11, sym12, sym13)
+var symCount = 8
+var securites_used = 2
+
+var tabHead = array.from("SYM", "Ptot", "P%")
+var textsize = "small"
+var timeframe = "1D"
+
+var currentYear = year(timenow)
+var maxBackYear = currentYear - max_years_back
+
+var tabCols = array.size(tabHead)
+// Avoid Error: "Script requests too many securities: 45. The limit is 40"
+var symRows = 40 / securites_used
+var tabRows = symCount <= symRows ? symCount + 1 : symRows
+var table tab = table.new("top_right", tabCols, tabRows, frame_width=1, frame_color=color.black, border_width=1, border_color=color.black)
+var symStr = array.new_string(symCount, "")
+var symPreds = array.new_int(symCount, 0)
+var symPerf = array.new_int(symCount, 0)
+var symOpenLastYear = array.new_float(symCount, 0)
+var symHistorical = matrix.new<float>(0, symCount * 2, na)
+
+securityNoRepaint(sym, src, tf = "1D") => // v5 default barmerge.lookahead_off
+    request.security(sym, tf, src)
+
+matrix.add_row(symHistorical)
+matCurRow = matrix.rows(symHistorical)
+// https://www.tradingview.com/pine-script-docs/en/v5/concepts/Repainting.html
+// TODO avoid repaint [barstate.isrealtime ? 1 : 0])[barstate.isrealtime ? 0 : 1]
+// redundancy needed because request.security() expects simple string (immutable)
+// https://www.tradingview.com/pine-script-reference/v5/#fun_request.security
+// https://stackoverflow.com/questions/65928792/pine-script-seriesstring-to-string-conversion
+matrix.set(symHistorical, matCurRow - 1, 0, securityNoRepaint(sym1, close))
+matrix.set(symHistorical, matCurRow - 1, 1, securityNoRepaint(sym2, close))
+
+securityGetOpenCloseMaSeries(sym, closeSeries, daysBack) =>
+    // TODO catch price not present
+    // closeLastYear = na(c[daysBack]) ? c[daysBack - 1] : c[daysBack]
+    // openThisYear = na(o[daysBack - 1]) ? o[daysBack - 2] : o[daysBack - 1]
+    // TODO curRow - daysBack
+    closeLastYear = closeSeries[daysBack]
+    openThisYear = securityNoRepaint(sym, open[daysBack - 1])
+    closeLastBar = closeSeries[0]
+    ma = switch
+        ma_type == "SMA" => ta.sma(closeSeries, ma_period)[0]
+        => ta.ema(closeSeries, ma_period)[0]
+    [closeLastYear, openThisYear, closeLastBar, ma]
+
+securityGetNewYearsPerfPred(float closeLastYear, float openThisYear, float closeLastBar, float ma) =>
+    ytd_ud = closeLastBar >= closeLastYear ? 1 : -1
+    this_ud = closeLastBar >= openThisYear ? 1 : -1
+    ma_ud = closeLastBar >= ma ? 1 : -1
+    pred = ma_ud + ytd_ud + this_ud
+    switch
+        pred >= 1 => 1
+        pred <= -1 => -1
+        => 0
+
+securitySetPerf(sym, closeSeries, int symRow, int daysBack, bool firstYearInWindow, bool firstDayOfCurrentYear) =>
+    [closeLastYear, openThisYear, closeLastBar, ma] = securityGetOpenCloseMaSeries(sym, closeSeries, daysBack)
+    if not firstYearInWindow
+        openLastYear = array.get(symOpenLastYear, symRow)
+        getLastYearPred = array.get(symPreds, symRow)
+        perf = switch
+            getLastYearPred == 1 and closeLastYear > openLastYear => true
+            getLastYearPred == -1 and closeLastYear < openLastYear => true
+            => false
+        if perf
+            array.set(symPerf, symRow, array.get(symPerf, symRow) + 1)
+    if not firstDayOfCurrentYear
+        array.set(symPreds, symRow, securityGetNewYearsPerfPred(closeLastYear, openThisYear, closeLastBar, ma))
+        array.set(symOpenLastYear, symRow, openThisYear)
+
+barYear = year(time)
+firstDayOfCurrentYear = barYear == currentYear and year(time[1]) < currentYear
+firstYearInWindow = barYear == maxBackYear 
+lookupWindow = barYear >= maxBackYear and barYear < currentYear
+lookupDayOfYear = year(time[days_of_new_year]) == ( barYear - 1 ) and year(time[days_of_new_year - 1]) == barYear
+if firstDayOfCurrentYear or ( lookupWindow and lookupDayOfYear )
+    daysBack = firstDayOfCurrentYear ? 1 : days_of_new_year
+    sliceToRow = matCurRow < ma_period ? 0 : matCurRow - ma_period + 1
+    for col = 0 to securites_used - 1
+        closeSeries = matrix.submatrix(symHistorical, matCurRow - 1, sliceToRow)
+        switch col
+            1 => securitySetPerf(sym1, closeSeries, 0, daysBack, firstYearInWindow, firstYearInWindow)
+            2 => securitySetPerf(sym2, closeSeries, 1, daysBack, firstYearInWindow, firstYearInWindow)
+
+if barstate.islast
+    for [col, head] in tabHead
+        table.cell(tab, col, 0, head, text_size=textsize, bgcolor=color.black, text_color=color.white)
+    for row = 0 to symCount - 1
+        sym = array.get(symbols, row)
+        perf_total = array.get(symPerf, row)
+        // TODO extract calculation into function
+        // TODO show calculation for year back in table, use matrix
+        perf_percent = math.round(perf_total / max_years_back * 100, 2)
+        for [col, txt] in array.from(sym, str.tostring(perf_total), str.tostring(perf_percent))
+            table.cell(tab, col, row + 1, txt, text_size=textsize, bgcolor=color.white, text_color=color.black)
+

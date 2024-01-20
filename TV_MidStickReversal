@@ -1,0 +1,28 @@
+//©tlxy Mid Stick Reversal
+//@version=5
+indicator("Mid Stick Reversal", overlay=true)
+
+var float big_ratio_lower = float(.96)
+var float big_ratio_upper = float(8)
+var float small_ratio = float(1)/3
+var float in_ratio = float(1)/2
+var int range_fwd_in = 3 // candles until cancel in
+var int range_fwd_out = 8 // candles until exit
+var float rrr = float(2) // return risk ratio
+
+body = math.abs(open - close)
+top = high - (open > close ? open : close)
+bottom = (open < close ? open : close) - low
+
+if ( top/body >= big_ratio_lower and top/body <= big_ratio_upper and bottom/body <= small_ratio )
+    y_in = high - top * in_ratio
+    line.new(x1 = bar_index, y1 = y_in, x2 = bar_index + range_fwd_in, y2 = y_in, width=1, color=color.red)
+    line.new(x1 = bar_index, y1 = y_in - top, x2 = bar_index + range_fwd_out, y2 = y_in - top, width=1, color=color.red)
+    box.new(bar_index, y_in + top, bar_index + range_fwd_out, y_in - rrr * top, color.rgb(0, 0, 0, 100), bgcolor = color.rgb(255, 0, 0, 90))
+
+else if ( bottom/body >= big_ratio_lower and bottom/body <= big_ratio_upper and top/body <= small_ratio )
+    y_in = low + bottom * in_ratio
+    line.new(x1 = bar_index, y1 = y_in, x2 = bar_index + range_fwd_in, y2 = y_in, width=1, color=color.green)
+    line.new(x1 = bar_index, y1 = y_in + bottom, x2 = bar_index + range_fwd_out, y2 = y_in + bottom, width=1, color=color.green)
+    box.new(bar_index, y_in + rrr * bottom, bar_index + range_fwd_out, y_in - bottom, color.rgb(0, 0, 0, 100), bgcolor = color.rgb(0, 255, 0, 90))
+
